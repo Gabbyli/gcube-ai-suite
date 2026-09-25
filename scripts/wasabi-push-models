@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+REMOTE="${WASABI_REMOTE:-wasabi}:${WASABI_BUCKET:-gabrielimani-gcube}"
+rclone copy /workspace/models "${REMOTE}/models" \
+  --s3-no-check-bucket \
+  --progress

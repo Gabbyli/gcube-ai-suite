@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p \
+  /workspace/comfyui-data/input \
+  /workspace/comfyui-data/output \
+  /workspace/comfyui-data/user \
+  /workspace/models \
+  /workspace/logs
+
+configure_wasabi() {
+  if [[ -n "${WASABI_ACCESS_KEY_ID:-}" && -n "${WASABI_SECRET_ACCESS_KEY:-}" ]]; then
+    mkdir -p /root/.config/rclone
+    rclone config create "${WASABI_REMOTE}" s3 \
+      provider Wasabi \
+      access_key_id "${WASABI_ACCESS_KEY_ID}" \
+      secret_access_key "${WASABI_SECRET_ACCESS_KEY}" \
+      region "${WASABI_REGION}" \
+      endpoint "${WASABI_ENDPOINT}" \
+      no_check_bucket true \
+      acl "" \
+      --non-interactive >/workspace/logs/rclone-config.log 2>&1 || true
+  fi
+}
+
+restore_small_state() {
+  if rclone listremotes | grep -qx "${WASABI_REMOTE}:"; then
+    rclone copy "${WASABI_REMOTE}:${WASABI_BUCKET}/comfyui/user" /workspace/comfyui-data/user \
+      --s3-no-check-bucket --ignore-errors || true
+    rclone copy "${WASABI_REMOTE}:${WASABI_BUCKET}/comfyui/input" /workspace/comfyui-data/input \
+      --s3-no-check-bucket --ignore-errors || true
+  fi
+}
+
+link_runtime_dirs() {
+  rm -rf "${COMFYUI_DIR}/input" "${COMFYUI_DIR}/output" "${COMFYUI_DIR}/user"
+  ln -s /workspace/comfyui-data/input "${COMFYUI_DIR}/input"
+  ln -s /workspace/comfyui-data/output "${COMFYUI_DIR}/output"
+  ln -s /workspace/comfyui-data/user "${COMFYUI_DIR}/user"
+}
+
+background_sync() {
+  while true; do
+    /usr/local/bin/wasabi-sync-once || true
+    sleep "${SYNC_INTERVAL}"
+  done
+}
+
+configure_wasabi
+restore_small_state
+link_runtime_dirs
+
+cd "${COMFYUI_DIR}"
+python main.py --listen 0.0.0.0 --port "${COMFYUI_PORT}" \
+  --models-dir /workspace/models \
+  > /workspace/logs/comfyui.log 2>&1 &
+
+background_sync &
+
+cd /workspace
+exec jupyter lab \
+  --ip=0.0.0.0 \
+  --port="${JUPYTER_PORT}" \
+  --no-browser \
+  --allow-root \
+  --ServerApp.token="${JUPYTER_TOKEN:-}" \
+  --ServerApp.password=""

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! rclone listremotes | grep -qx "${WASABI_REMOTE:-wasabi}:"; then
+  exit 0
+fi
+
+REMOTE="${WASABI_REMOTE:-wasabi}:${WASABI_BUCKET:-gabrielimani-gcube}"
+
+rclone copy /workspace/comfyui-data/output "${REMOTE}/comfyui/output" \
+  --s3-no-check-bucket --ignore-errors
+
+rclone sync /workspace/comfyui-data/user "${REMOTE}/comfyui/user" \
+  --s3-no-check-bucket --ignore-errors
+
+rclone sync /workspace/comfyui-data/input "${REMOTE}/comfyui/input" \
+  --s3-no-check-bucket --ignore-errors
